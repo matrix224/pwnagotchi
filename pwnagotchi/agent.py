@@ -81,7 +81,7 @@ class Agent(Client, Automata, AsyncAdvertiser, AsyncTrainer):
         self.run('set wifi.handshakes.file %s' % self._config['bettercap']['handshakes'])
         self.run('set wifi.handshakes.aggregate false')
 
-    def start_monitor_mode(self):
+    def start_monitor_mode(self, start_advertisement=True):
         mon_iface = self._config['main']['iface']
         mon_start_cmd = self._config['main']['mon_start_cmd']
         restart = not self._config['main']['no_restart']
@@ -117,7 +117,9 @@ class Agent(Client, Automata, AsyncAdvertiser, AsyncTrainer):
             logging.debug("starting wifi module ...")
             self.start_module('wifi.recon')
 
-        self.start_advertising()
+
+        if start_advertisement:
+            self.start_advertising()
 
     def _wait_bettercap(self):
         while True:
@@ -237,6 +239,7 @@ class Agent(Client, Automata, AsyncAdvertiser, AsyncTrainer):
     def _update_uptime(self, s):
         secs = pwnagotchi.uptime()
         self._view.set('uptime', utils.secs_to_hhmmss(secs))
+        #logging.info("AGENT-UPTIME = %d",secs)
         # self._view.set('epoch', '%04d' % self._epoch.epoch)
 
     def _update_counters(self):
@@ -311,13 +314,25 @@ class Agent(Client, Automata, AsyncAdvertiser, AsyncTrainer):
 
 
     def _fetch_stats(self):
+        bettercap_failed = False
         while True:
-            s = self.session()
-            self._update_uptime(s)
-            self._update_advertisement(s)
-            self._update_peers()
-            self._update_counters()
-            self._update_handshakes(0)
+            try:
+                s = self.session()
+            except Exception as e:
+                logging.error("Agent fetch_stats session error -> %s" % e)
+                bettercap_failed = True
+            else:
+                if bettercap_failed:
+                    logging.info("Agent fetch_stats: Re-established bettercap session, restarting events and monitor...")
+                    self.setup_events()
+                    self.start_monitor_mode(False)
+                    bettercap_failed = False
+                # TODO: update_uptime and update_advertisements take s, but don't use it?
+                self._update_uptime(s)
+                self._update_advertisement(s)
+                self._update_peers()
+                self._update_counters()
+                self._update_handshakes(0)
             time.sleep(1)
 
     async def _on_event(self, msg):
